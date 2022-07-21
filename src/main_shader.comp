@@ -1,0 +1,204 @@
+#version 450
+layout(local_size_x = 1) in;    
+
+const uint PREC_GIVES = 1;
+const uint PREC_EQUALS = 2;
+const uint PREC_TAKES = 3;
+const uint PREC_UNDEF = 0;
+
+struct StackSym {
+    uint sym;
+    uint prec;
+};
+
+struct StackInfo {
+    uint stack_base;
+    uint top_term;
+    uint gives_nr;
+};
+
+struct ParseError {
+    uint error;
+    uint location;
+};
+
+layout(set = 0, binding = 0) buffer AlphaBuffer {
+    uint[] alpha;
+};
+
+layout(set = 0, binding = 1) buffer StackBuffer {
+    StackSym[] stack;
+};
+
+layout(set = 0, binding = 2) buffer StackPtrBuffer {
+    uint[] stack_ptr;
+};
+
+layout(set = 0, binding = 3) buffer GivesStackBuffer {
+    uint[] gives_stack;
+};
+
+layout(set = 0, binding = 4) buffer PrecMatBuffer {
+    uint[] prec_mat;
+};
+
+layout(set = 0, binding = 5) buffer RulesBuffer {
+    uint[] rules;
+};
+
+layout(set = 0, binding = 6) buffer LengthBuffer {
+    uint length;
+};
+
+layout(set = 0, binding = 7) buffer ChunkSizeBuffer {
+    uint chunk_size;
+};
+
+layout(set = 0, binding = 8) buffer TermThreshBuffer {
+    uint term_thresh;
+};
+
+layout(set = 0, binding = 9) buffer ErrorBuffer {
+    ParseError[] error;
+};
+
+
+StackInfo stack_init(
+    uint stack_base
+) {
+    stack_ptr[gl_GlobalInvocationID.x] = stack_base;
+    return StackInfo(
+        stack_base,
+        0,
+        0
+    );
+}
+
+bool is_nt(uint sym) {
+    return sym >= term_thresh;
+}
+
+void stack_push(inout StackInfo self, StackSym sym) {
+    stack[stack_ptr[gl_GlobalInvocationID.x]] = sym;
+    if (!is_nt(sym.sym)) {
+        self.top_term = stack_ptr[gl_GlobalInvocationID.x];
+    }
+    if (sym.prec == PREC_GIVES) {
+        gives_stack[self.stack_base + self.gives_nr] = stack_ptr[gl_GlobalInvocationID.x];
+        self.gives_nr++;
+    }
+    stack_ptr[gl_GlobalInvocationID.x]++;
+}
+
+uint stack_handle_head(StackInfo self) {
+    uint top_gives = gives_stack[self.stack_base + self.gives_nr - 1];
+    if (is_nt(stack[top_gives - 1].sym)) {
+        return top_gives - 1;
+    }
+    else {
+        return top_gives;
+    }
+}
+
+bool stack_handle_matches(StackInfo self, uint rule_offset, uint rule_length) {
+    uint handle_head = stack_handle_head(self);
+    if (stack_ptr[gl_GlobalInvocationID.x] - handle_head != rule_length) {
+        return false;
+    }
+    for (uint i = 0; i < rule_length; i++) {
+        if (stack[handle_head + i].sym != rules[rule_offset + i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void stack_pop_handle(inout StackInfo self) {
+    uint handle_head = stack_handle_head(self);
+    stack_ptr[gl_GlobalInvocationID.x] = handle_head;
+    self.gives_nr--;
+    self.top_term = handle_head - 1;
+}
+
+uint stack_peek_top_term(StackInfo self) {
+    return stack[self.top_term].sym;
+}
+
+const ParseError parse_error_no_error = ParseError(0, 0);
+
+ParseError parse_error_at_location(uint location) {
+    return ParseError(1, location);
+}
+
+void advance_head(inout uint head) {
+    head++;
+    error[gl_GlobalInvocationID.x] = parse_error_at_location(head);
+}
+
+// Returns true iff the handle is reduced correctly.
+bool stack_reduce_handle(inout StackInfo self) {
+    uint offset = 0;
+    uint rules_nr = rules[offset];
+    offset++;
+    for (uint i = 0; i < rules_nr; i++) {
+        uint rule_lhs = rules[offset];
+        offset++;
+        uint rule_length = rules[offset];
+        offset++;
+        if (stack_handle_matches(self, offset, rule_length)) {
+            stack_pop_handle(self);
+            stack_push(self, StackSym(rule_lhs, PREC_UNDEF));
+            return true;
+        }
+        else {
+            offset += rule_length;
+        }
+    }
+    return false;
+}
+
+uint get_prec(uint sym_i, uint sym_j) {
+    return prec_mat[sym_i * term_thresh + sym_j];
+}
+
+void main() {
+    uint thread_idx = gl_GlobalInvocationID.x;
+
+    uint head = thread_idx * chunk_size;
+    error[thread_idx] = parse_error_at_location(head);
+    if (head < length) {
+        StackInfo stack_info = stack_init(head);
+        uint end = min(head + chunk_size, length);
+        stack_push(stack_info, StackSym(alpha[head], PREC_UNDEF));
+        advance_head(head);
+        while (head < end) {
+            if (is_nt(alpha[head])) {
+                stack_push(stack_info, StackSym(alpha[head], PREC_UNDEF));
+                advance_head(head);
+            }
+            else {
+                uint top_term = stack_peek_top_term(stack_info);
+                uint prec = get_prec(top_term, alpha[head]);
+                switch (prec) {
+                    case PREC_GIVES:
+                    case PREC_EQUALS:
+                        stack_push(stack_info, StackSym(alpha[head], prec));
+                        advance_head(head);
+                        break;
+                    case PREC_TAKES:
+                        if (stack_info.gives_nr == 0) {
+                            stack_push(stack_info, StackSym(alpha[head], prec));
+                            advance_head(head);
+                        }
+                        else if (!stack_reduce_handle(stack_info)) {
+                            return;  // Error
+                        }
+                        break;
+                    default:
+                        return; // Error
+                }
+            }
+        }
+    }
+    error[thread_idx] = parse_error_no_error;
+}
