@@ -4,8 +4,6 @@ use emu_core::prelude::*;
 use crate::stack_sym::StackSym;
 use crate::parse_error::ParseError;
 
-const N_THREADS: usize = 4;
-
 use crate::gpu_grammar::GPUGrammar;
 
 pub struct ParParseResult {
@@ -13,19 +11,19 @@ pub struct ParParseResult {
     pub errors: Vec<ParseError>,
 }
 
-pub fn par_parse(alpha: &[u32], gpu_grammar: GPUGrammar, chunk_size: usize) -> Result<ParParseResult, Box<dyn std::error::Error>>  {  
+pub fn par_parse(alpha: &[u32], gpu_grammar: GPUGrammar, n_threads: usize) -> Result<ParParseResult, Box<dyn std::error::Error>>  {  
     let length = alpha.len();
 
     let alpha_db: DeviceBox<[u32]> = alpha.as_device_boxed_mut()?;
     let stack_db: DeviceBox<[StackSym]> =
         vec![StackSym { sym: 0, prec: 0 }; length].as_device_boxed_mut()?;
-    let stack_ptr_db: DeviceBox<[u32]> = vec![0; N_THREADS].as_device_boxed_mut()?;
+    let stack_ptr_db: DeviceBox<[u32]> = vec![0; n_threads].as_device_boxed_mut()?;
     let gives_stack_db: DeviceBox<[u32]> = vec![0; length].as_device_boxed_mut()?;
     let prec_mat_db: DeviceBox<[u32]> = gpu_grammar.prec_mat.as_device_boxed()?;
     let rules_db: DeviceBox<[u32]> = gpu_grammar.rules.as_device_boxed()?;
 
     let error: DeviceBox<[ParseError]> =
-        vec![ParseError::no_error(); N_THREADS].as_device_boxed_mut()?;
+        vec![ParseError::no_error(); n_threads].as_device_boxed_mut()?;
 
     let glsl = Glsl::new()
         .set_entry_point_name("main")
@@ -42,8 +40,13 @@ pub fn par_parse(alpha: &[u32], gpu_grammar: GPUGrammar, chunk_size: usize) -> R
         .set_code_with_glsl(include_str!("../shaders/par_parse.comp"));
     let c = compile::<Glsl, GlslCompile, _, GlobalCache>(glsl)?.finish()?;
 
+    let chunk_size = match length % n_threads {
+        0 => length / n_threads,
+        _ => length / n_threads + 1,
+    };
+    
     unsafe {
-        spawn(N_THREADS as u32).launch(call!(
+        spawn(n_threads as u32).launch(call!(
             c,
             &alpha_db,
             &stack_db,
