@@ -1,3 +1,0 @@
-[env]
-# SHADERC_LIB_DIR = { value = "C:\\Users\\mikidep\\Downloads\\shaderc\\lib\\", force = true }
-# RUST_BACKTRACE = "1"

@@ -28,11 +28,4 @@ impl ParseError {
             location: 0
         }
     }
-
-    pub fn at_location(location: u32) -> ParseError {
-        return ParseError {
-            error: 1,
-            location
-        }
-    }
 }

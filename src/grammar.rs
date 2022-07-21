@@ -39,22 +39,3 @@ impl std::fmt::Display for Prec {
         }
     }
 }
-
-#[repr(C)]
-pub struct PrecMatrix<'a> {
-    rawprecmat: &'a [u32],
-    term_thresh: u32
-}
-
-impl<'a> PrecMatrix<'a> {
-    pub fn new(rawprecmat: &'a [u32], term_thresh: u32) -> Self {
-        PrecMatrix {
-            rawprecmat,
-            term_thresh,
-        }
-    }
-    
-    pub fn get(&self, sym_i: u32, sym_j: u32) -> Prec {
-        self.rawprecmat[(sym_i * self.term_thresh + sym_j) as usize].into()
-    }
-}

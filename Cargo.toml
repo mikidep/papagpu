@@ -1,17 +1,11 @@
 [package]
-name = "scene-emu"
+name = "papagpu"
+author = "Michele De Pascalis"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 emu_core = { version = "*", features = ["glsl-compile"] }
 futures = "*"
 zerocopy = "*"
-rspirv = "*"
-spirv-std = { git = "https://github.com/EmbarkStudios/rust-gpu", features = ["glam"] }
 env_logger = "0.8.4"
-
-[build-dependencies]
-spirv-builder = { git = "https://github.com/EmbarkStudios/rust-gpu" }

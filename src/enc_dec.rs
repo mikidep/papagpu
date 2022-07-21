@@ -1,7 +1,4 @@
-#[allow(dead_code, unused)]
-#[path = "../shaders/main_shader/src/grammar.rs"]
-pub mod grammar;
-use grammar::Prec;
+use crate::grammar::Prec;
 
 pub fn encode_char(alphabet: &[char], c: char) -> u32 {
     if c == '#' {
