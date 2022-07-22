@@ -9,26 +9,23 @@ mod grammar;
 use grammar::{Prec, OPGrammar, MixedSym, MixedSymOrBorder};
 
 mod parse_error;
-use parse_error::ParseError;
 
 pub mod gpu_grammar;
 use gpu_grammar::GPUGrammar;
 
 mod par_parse;
-use par_parse::par_parse;
+use par_parse::{par_parse, ParseConfig, ParseResult};
 
-fn print_gpu_stacks<'a, I, TSym, NTSym>(
+fn print_gpu_results<'a, TSym, NTSym>(
     opg: &OPGrammar<TSym, NTSym>,
-    stacks: I,
-    errors: &[ParseError],
+    results: &[ParseResult]
 ) where
-    I: IntoIterator<Item = &'a [StackSym]>,
     TSym: Eq + std::hash::Hash + Clone + std::fmt::Display,
     NTSym: Eq + Clone + std::fmt::Display,
 {
-    for (idx, (st, err)) in stacks.into_iter().zip(errors).enumerate() {
+    for (idx, res) in results.iter().enumerate() {
         println!("Stack {idx}:");
-        for ssym in st {
+        for ssym in res.stack.iter() {
             let sym_fmt = match opg.decode_mixed_symbol(ssym.sym) {
                 MixedSymOrBorder::MixedSym(MixedSym::Term(sym)) => format!("{sym}"),
                 MixedSymOrBorder::MixedSym(MixedSym::NonTerm(sym)) => format!("{sym}"),
@@ -41,7 +38,7 @@ fn print_gpu_stacks<'a, I, TSym, NTSym>(
             );
         }
         println!();
-        println!("Error: {}", err);
+        println!("Error: {}", res.error);
         println!();
     }
 }
@@ -109,14 +106,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let alpha = "()(()(()()))";
     let alpha_gpu = opg.encode_string_with_border(&alpha.chars().collect::<Vec<_>>());
+    let split = 6;
+    let alpha_split_1 = &alpha_gpu[0..split + 1];
+    let alpha_split_2 = &alpha_gpu[split..];
 
-    let n_threads = 1;
-    let parse_res = par_parse(&alpha_gpu, gpu_gramm, n_threads)?;
+    let parse_results = par_parse(&vec![
+        ParseConfig {
+            alpha: alpha_split_1,
+            stack: &vec![StackSym { sym: alpha_split_1[0], prec: Prec::Undef.encode() }],
+            head: 1,
+            end: alpha_split_1.len() as u32 - 1
+        },
+        ParseConfig {
+            alpha: alpha_split_2,
+            stack: &vec![StackSym { sym: alpha_split_2[0], prec: Prec::Undef.encode() }],
+            head: 1,
+            end: alpha_split_2.len() as u32 - 1
+        }
+    ], gpu_gramm)?;
 
-    print_gpu_stacks(
+    print_gpu_results(
         &opg,
-        parse_res.stacks.iter().map(|v| v.as_slice()),
-        &&parse_res.errors
+        &parse_results
     );
 
     Ok(())
