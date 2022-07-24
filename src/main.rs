@@ -1,4 +1,5 @@
 use std::vec::Vec;
+use itertools::Itertools;
 
 use emu_core::prelude::*;
 
@@ -104,26 +105,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rules: &opg.encode_rules(),
     };
 
-    let alpha = "()(()(()()))";
-    let alpha_gpu = opg.encode_string_with_border(&alpha.chars().collect::<Vec<_>>());
-    let split = 6;
-    let alpha_split_1 = &alpha_gpu[0..split + 1];
-    let alpha_split_2 = &alpha_gpu[split..];
-
-    let parse_results = par_parse(&vec![
+    let alpha_file = std::fs::File::open("alpha.txt")?;
+    let mut alpha_reader = utf8_read::Reader::new(std::io::BufReader::new(alpha_file));
+    // let alpha = "()(()(()()))";
+    let chars = alpha_reader.map(|c| c.unwrap());
+    let alpha_gpu_it = opg.encode_iterator_with_border(chars);
+    let chunk_size = 7;
+    let alpha_gpu_it_chunks = alpha_gpu_it.chunks(chunk_size);
+    
+    let parse_results = par_parse(alpha_gpu_it_chunks.into_iter().map(|chunk| {
+        let chunk_vec = chunk.collect_vec();
+        let first_sym = chunk_vec[0];
+        let chunk_len = chunk_vec.len();
         ParseConfig {
-            alpha: alpha_split_1,
-            stack: &vec![StackSym { sym: alpha_split_1[0], prec: Prec::Undef.encode() }],
+            alpha: chunk_vec,
+            stack: vec![StackSym { sym: first_sym, prec: Prec::Undef.encode() }],
             head: 1,
-            end: alpha_split_1.len() as u32 - 1
-        },
-        ParseConfig {
-            alpha: alpha_split_2,
-            stack: &vec![StackSym { sym: alpha_split_2[0], prec: Prec::Undef.encode() }],
-            head: 1,
-            end: alpha_split_2.len() as u32 - 1
+            end: chunk_len as u32 - 1,
         }
-    ], gpu_gramm)?;
+    }), gpu_gramm)?;
 
     print_gpu_results(
         &opg,

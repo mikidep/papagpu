@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -61,7 +62,7 @@ pub struct OPGrammar<TSym, NTSym> {
 impl<TSym, NTSym> OPGrammar<TSym, NTSym>
 where
     TSym: Eq + Hash + Clone,
-    NTSym: Eq + Clone
+    NTSym: Eq + Clone,
 {
     pub fn new(
         term_alphabet: Vec<TSym>,
@@ -79,15 +80,12 @@ where
         }
     }
 
-    pub fn new_with_prec_function<PrecFunc>(
+    pub fn new_with_prec_function(
         term_alphabet: Vec<TSym>,
         nonterm_alphabet: Vec<NTSym>,
         rules: Vec<(NTSym, Vec<MixedSym<TSym, NTSym>>)>,
-        mut prec_func: PrecFunc,
-    ) -> Self
-    where
-        PrecFunc: FnMut(&TSym, &TSym) -> Prec,
-    {
+        mut prec_func: impl FnMut(&TSym, &TSym) -> Prec,
+    ) -> Self {
         let mut op_matrix = HashMap::new();
         for sym_i in term_alphabet.iter() {
             for sym_j in term_alphabet.iter() {
@@ -97,12 +95,20 @@ where
         Self::new(term_alphabet, nonterm_alphabet, rules, op_matrix)
     }
 
-    fn encode_term(&self, sym: &TSym) -> u32 {
-        self.term_alphabet.iter().position(|s| s == sym).unwrap() as u32 + 1
+    fn encode_term(&self, sym: impl Borrow<TSym>) -> u32 {
+        self.term_alphabet
+            .iter()
+            .position(|s| s == sym.borrow())
+            .unwrap() as u32
+            + 1
     }
 
-    fn encode_nonterm(&self, sym: &NTSym) -> u32 {
-        self.nonterm_alphabet.iter().position(|s| s == sym).unwrap() as u32 + self.term_thresh
+    fn encode_nonterm(&self, sym: impl Borrow<NTSym>) -> u32 {
+        self.nonterm_alphabet
+            .iter()
+            .position(|s| s == sym.borrow())
+            .unwrap() as u32
+            + self.term_thresh
     }
 
     fn encode_rule_rhs(&self, rule_rhs: &Vec<MixedSym<TSym, NTSym>>) -> Vec<u32> {
@@ -153,20 +159,29 @@ where
         res
     }
 
-    pub fn encode_string_with_border<'a, IntoRefIt>(&'a self, s: IntoRefIt) -> Vec<u32>
+    pub fn encode_iterator_with_border<'a, B>(
+        &'a self,
+        s: impl IntoIterator<Item = B> + 'a,
+    ) -> impl Iterator<Item = u32> + 'a
     where
-        IntoRefIt: IntoIterator<Item = &'a TSym>,
+        B: Borrow<TSym>,
     {
-        let mut res = vec![0];
-        res.extend(s.into_iter().map(|sym| self.encode_term(sym)).collect::<Vec<_>>());
-        res.push(0);
-        res
+        std::iter::once(0)
+            .chain(s.into_iter().map(|sym| self.encode_term(sym)))
+            .chain(std::iter::once(0))
     }
 
-    pub fn encode_mixed_string<'a, IntoRefIt>(&'a self, s: IntoRefIt) -> Vec<u32>
-    where
-        IntoRefIt: IntoIterator<Item = &'a MixedSym<TSym, NTSym>>,
-    {
+    pub fn encode_string_with_border<'a>(
+        &'a self,
+        s: impl IntoIterator<Item = &'a TSym> + 'a,
+    ) -> Vec<u32> {
+        self.encode_iterator_with_border(s).collect()
+    }
+
+    pub fn encode_mixed_string<'a>(
+        &'a self,
+        s: impl IntoIterator<Item = &'a MixedSym<TSym, NTSym>>,
+    ) -> Vec<u32> {
         s.into_iter()
             .map(|sym| match sym {
                 MixedSym::Term(sym) => self.encode_term(sym),
@@ -181,7 +196,9 @@ where
         } else if sym < self.term_thresh {
             MixedSymOrBorder::MixedSym(MixedSym::Term(self.term_alphabet[sym as usize - 1].clone()))
         } else {
-            MixedSymOrBorder::MixedSym(MixedSym::NonTerm(self.nonterm_alphabet[(sym - self.term_thresh) as usize].clone()))
+            MixedSymOrBorder::MixedSym(MixedSym::NonTerm(
+                self.nonterm_alphabet[(sym - self.term_thresh) as usize].clone(),
+            ))
         }
     }
 

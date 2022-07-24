@@ -6,9 +6,9 @@ use crate::stack_sym::StackSym;
 
 use crate::gpu_grammar::GPUGrammar;
 
-pub struct ParseConfig<'a> {
-    pub alpha: &'a [u32],
-    pub stack: &'a [StackSym],
+pub struct ParseConfig {
+    pub alpha: Vec<u32>,
+    pub stack: Vec<StackSym>,
     pub head: u32,
     pub end: u32,
 }
@@ -18,22 +18,11 @@ pub struct ParseResult {
     pub error: ParseError,
 }
 
-pub fn par_parse<'a, ConfigIt>(
-    configs: ConfigIt,
+pub fn par_parse(
+    configs: impl IntoIterator<Item = ParseConfig>,
     gpu_grammar: GPUGrammar,
-) -> Result<Vec<ParseResult>, Box<dyn std::error::Error>>
-where
-    ConfigIt: IntoIterator<Item = &'a ParseConfig<'a>>,
-{
-    let (
-        joined_alphas,
-        heads,
-        ends,
-        n_threads,
-        stack,
-        stack_base,
-        stack_ptr
-    ) = {
+) -> Result<Vec<ParseResult>, Box<dyn std::error::Error>> {
+    let (joined_alphas, heads, ends, n_threads, stack, stack_base, stack_ptr) = {
         let mut joined_alphas: Vec<u32> = Vec::new();
         let mut heads = Vec::new();
         let mut ends = Vec::new();
@@ -56,7 +45,7 @@ where
             n_threads += 1;
 
             stack.extend(conf.stack);
-            stack.extend(std::iter::repeat(StackSym { sym: 0, prec: 0 }).take(conf.alpha.len()));
+            stack.extend(std::iter::repeat(StackSym { sym: 0, prec: 0 }).take(alpha_len));
             stack_base.push(stack_offset as u32);
             stack_offset += stack_len;
             stack_ptr.push(stack_offset as u32);
@@ -69,7 +58,7 @@ where
             n_threads,
             stack,
             stack_base,
-            stack_ptr
+            stack_ptr,
         )
     };
 
@@ -125,11 +114,15 @@ where
     let result_stack_ptr = futures::executor::block_on(stack_ptr_db.get())?;
     let result_errors = futures::executor::block_on(errors_db.get())?;
 
-    let results = stack_base.iter().zip(result_stack_ptr.iter()).zip(result_errors.iter())
+    let results = stack_base
+        .iter()
+        .zip(result_stack_ptr.iter())
+        .zip(result_errors.iter())
         .map(|((base, ptr), err)| ParseResult {
             stack: result_stack[*base as usize..*ptr as usize].to_vec(),
-            error: *err
-        }).collect();
+            error: *err,
+        })
+        .collect();
 
     Ok(results)
 }

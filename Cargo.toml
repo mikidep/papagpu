@@ -9,3 +9,5 @@ emu_core = { version = "*", features = ["glsl-compile"] }
 futures = "*"
 zerocopy = "*"
 env_logger = "0.8.4"
+utf8-read = "0.4.0"
+itertools = "0.7.8"
