@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -41,6 +40,7 @@ impl std::fmt::Display for Prec {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum MixedSym<TSym, NTSym> {
     Term(TSym),
     NonTerm(NTSym),
@@ -95,26 +95,23 @@ where
         Self::new(term_alphabet, nonterm_alphabet, rules, op_matrix)
     }
 
-    fn encode_term(&self, sym: impl Borrow<TSym>) -> u32 {
-        self.term_alphabet
-            .iter()
-            .position(|s| s == sym.borrow())
-            .unwrap() as u32
-            + 1
+    fn encode_term(&self, sym: TSym) -> u32 {
+        self.term_alphabet.iter().position(|s| s == &sym).unwrap() as u32 + 1
     }
 
-    fn encode_nonterm(&self, sym: impl Borrow<NTSym>) -> u32 {
+    fn encode_nonterm(&self, sym: NTSym) -> u32 {
         self.nonterm_alphabet
             .iter()
-            .position(|s| s == sym.borrow())
+            .position(|s| s == &sym)
             .unwrap() as u32
             + self.term_thresh
     }
 
     fn encode_rule_rhs(&self, rule_rhs: &Vec<MixedSym<TSym, NTSym>>) -> Vec<u32> {
         rule_rhs
-            .iter()
-            .map(|sym| match sym {
+            .clone()
+            .into_iter()
+            .map(|sym: MixedSym<TSym, NTSym>| match sym {
                 MixedSym::Term(sym) => self.encode_term(sym),
                 MixedSym::NonTerm(sym) => self.encode_nonterm(sym),
             })
@@ -130,10 +127,10 @@ where
         let length = self.rules.len();
         let mut res: Vec<u32> = Vec::new();
         res.push(length as u32);
-        for (rule_lhs, rule_rhs) in self.rules.iter() {
+        for (rule_lhs, rule_rhs) in self.rules.clone().into_iter() {
             res.push(self.encode_nonterm(rule_lhs));
             res.push(rule_rhs.len() as u32);
-            res.extend(self.encode_rule_rhs(rule_rhs));
+            res.extend(self.encode_rule_rhs(&rule_rhs));
         }
         res
     }
@@ -159,28 +156,29 @@ where
         res
     }
 
-    pub fn encode_iterator_with_border<'a, B>(
+    pub fn encode_iterator<'a>(
         &'a self,
-        s: impl IntoIterator<Item = B> + 'a,
-    ) -> impl Iterator<Item = u32> + 'a
-    where
-        B: Borrow<TSym>,
-    {
+        s: impl IntoIterator<Item = TSym> + 'a,
+    ) -> impl Iterator<Item = u32> + 'a {
+        s.into_iter().map(|sym| self.encode_term(sym))
+    }
+
+    pub fn encode_iterator_with_border<'a>(
+        &'a self,
+        s: impl IntoIterator<Item = TSym> + 'a,
+    ) -> impl Iterator<Item = u32> + 'a {
         std::iter::once(0)
-            .chain(s.into_iter().map(|sym| self.encode_term(sym)))
+            .chain(self.encode_iterator(s))
             .chain(std::iter::once(0))
     }
 
-    pub fn encode_string_with_border<'a>(
-        &'a self,
-        s: impl IntoIterator<Item = &'a TSym> + 'a,
-    ) -> Vec<u32> {
+    pub fn encode_string_with_border(&self, s: impl IntoIterator<Item = TSym>) -> Vec<u32> {
         self.encode_iterator_with_border(s).collect()
     }
 
     pub fn encode_mixed_string<'a>(
         &'a self,
-        s: impl IntoIterator<Item = &'a MixedSym<TSym, NTSym>>,
+        s: impl IntoIterator<Item = MixedSym<TSym, NTSym>>,
     ) -> Vec<u32> {
         s.into_iter()
             .map(|sym| match sym {

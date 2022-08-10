@@ -1,26 +1,25 @@
 use std::vec::Vec;
-use itertools::Itertools;
 
 use emu_core::prelude::*;
 
 mod stack_sym;
-use stack_sym::StackSym;
 
 mod grammar;
-use grammar::{Prec, OPGrammar, MixedSym, MixedSymOrBorder};
+use grammar::{MixedSym, MixedSymOrBorder, OPGrammar, Prec};
 
-mod parse_error;
+mod gpu_parse_error;
 
 pub mod gpu_grammar;
 use gpu_grammar::GPUGrammar;
 
-mod par_parse;
-use par_parse::{par_parse, ParseConfig, ParseResult};
+mod par_parse_gpu;
+use par_parse_gpu::{par_parse_gpu, GPUParseResult};
 
-fn print_gpu_results<'a, TSym, NTSym>(
-    opg: &OPGrammar<TSym, NTSym>,
-    results: &[ParseResult]
-) where
+mod par_parse;
+use par_parse::encode_initial_configs;
+
+fn print_gpu_results<'a, TSym, NTSym>(opg: &OPGrammar<TSym, NTSym>, results: &[GPUParseResult])
+where
     TSym: Eq + std::hash::Hash + Clone + std::fmt::Display,
     NTSym: Eq + Clone + std::fmt::Display,
 {
@@ -32,23 +31,16 @@ fn print_gpu_results<'a, TSym, NTSym>(
                 MixedSymOrBorder::MixedSym(MixedSym::NonTerm(sym)) => format!("{sym}"),
                 MixedSymOrBorder::Border => format!("#"),
             };
-            print!(
-                "[{}, {}]",
-                sym_fmt,
-                Prec::decode(ssym.prec)
-            );
+            print!("[{}, {}]", sym_fmt, Prec::decode(ssym.prec));
         }
         println!();
         println!("Error: {}", res.error);
+        println!("Top gives: {}", res.top_gives);
         println!();
     }
 }
 
-fn parse_rule(
-    alphabet: &[char],
-    nt_alphabet: &[char],
-    rule: &str
-) -> Vec<MixedSym<char, char>> {
+fn parse_rule(alphabet: &[char], nt_alphabet: &[char], rule: &str) -> Vec<MixedSym<char, char>> {
     rule.chars()
         .map(|c| {
             if alphabet.contains(&c) {
@@ -69,35 +61,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     select(|_, info| {
         if let Some(info) = info {
-            info.name().to_ascii_lowercase().contains("nvidia")  // Please select the desired GPU
+            info.name().to_ascii_lowercase().contains("nvidia") // Please select the desired GPU
         } else {
             false
         }
     })?;
 
-    println!("Selected GPU: {}.", info()?.info.map_or("device info not available".to_string(), |i| i.name()));
+    println!(
+        "Selected GPU: {}.",
+        info()?
+            .info
+            .map_or("device info not available".to_string(), |i| i.name())
+    );
     println!();
 
     let alphabet = "()".chars().collect::<Vec<_>>();
     let nt_alphabet = "S".chars().collect::<Vec<_>>();
-    let rules = vec![('S', "()"), ('S', "(S)"), ('S', "S()"), ('S', "S(S)")].iter()
-        .map(|(lhs, rhs)| (*lhs, parse_rule(&alphabet, &nt_alphabet, *rhs))).collect::<Vec<_>>();
+    let rules = vec![('S', "()"), ('S', "(S)"), ('S', "S()"), ('S', "S(S)")]
+        .iter()
+        .map(|(lhs, rhs)| (*lhs, parse_rule(&alphabet, &nt_alphabet, *rhs)))
+        .collect::<Vec<_>>();
 
-    let opg = OPGrammar::new_with_prec_function(
-        alphabet,
-        nt_alphabet,
-        rules,
-        |sym_i, sym_j| match (sym_i, sym_j) {
-            ('#', '#') => Prec::Equals,
-            ('#', _) => Prec::Gives,
-            (_, '#') => Prec::Takes,
-            ('(', '(') => Prec::Gives,
-            ('(', ')') => Prec::Equals,
-            (')', '(') => Prec::Takes,
-            (')', ')') => Prec::Takes,
-            _ => Prec::Undef,
-        }
-    );
+    let opg =
+        OPGrammar::new_with_prec_function(alphabet, nt_alphabet, rules, |sym_i, sym_j| {
+            match (sym_i, sym_j) {
+                ('#', '#') => Prec::Equals,
+                ('#', _) => Prec::Gives,
+                (_, '#') => Prec::Takes,
+                ('(', '(') => Prec::Gives,
+                ('(', ')') => Prec::Equals,
+                (')', '(') => Prec::Takes,
+                (')', ')') => Prec::Takes,
+                _ => Prec::Undef,
+            }
+        });
 
     let gpu_gramm = GPUGrammar {
         term_thresh: opg.term_thresh,
@@ -109,26 +106,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut alpha_reader = utf8_read::Reader::new(std::io::BufReader::new(alpha_file));
     // let alpha = "()(()(()()))";
     let chars = alpha_reader.map(|c| c.unwrap());
-    let alpha_gpu_it = opg.encode_iterator_with_border(chars);
-    let chunk_size = 7;
-    let alpha_gpu_it_chunks = alpha_gpu_it.chunks(chunk_size);
-    
-    let parse_results = par_parse(alpha_gpu_it_chunks.into_iter().map(|chunk| {
-        let chunk_vec = chunk.collect_vec();
-        let first_sym = chunk_vec[0];
-        let chunk_len = chunk_vec.len();
-        ParseConfig {
-            alpha: chunk_vec,
-            stack: vec![StackSym { sym: first_sym, prec: Prec::Undef.encode() }],
-            head: 1,
-            end: chunk_len as u32 - 1,
-        }
-    }), gpu_gramm)?;
+    let chunk_size = 4;
 
-    print_gpu_results(
-        &opg,
-        &parse_results
-    );
+    let parse_results = par_parse_gpu(
+        encode_initial_configs(chars, &opg, chunk_size).inspect(|conf| {
+            println!(
+                "Config string: \"{}\"",
+                opg.decode_mixed_string(&conf.alpha).iter().map(|msb| match msb {
+                    MixedSymOrBorder::MixedSym(ms) => match ms {
+                        MixedSym::Term(c) => *c,
+                        MixedSym::NonTerm(c) => *c,
+                    },
+                    MixedSymOrBorder::Border => '#',
+                }).collect::<String>()
+            )
+        }),
+        gpu_gramm,
+    )?;
+
+    print_gpu_results(&opg, &parse_results);
 
     Ok(())
 }

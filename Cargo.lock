@@ -195,12 +195,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "either"
-version = "1.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f107b87b6afc2a64fd13cac55fe06d6c8859f12d4b14cbcdd2c67d0976781be"
-
-[[package]]
 name = "emu_core"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -514,15 +508,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.7.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d47946d458e94a1b7bcabbf6521ea7c037062c81f534615abcad76e84d4970d"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "js-sys"
 version = "0.3.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -636,7 +621,6 @@ dependencies = [
  "emu_core",
  "env_logger",
  "futures",
- "itertools",
  "utf8-read",
  "zerocopy",
 ]

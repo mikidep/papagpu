@@ -1,31 +1,28 @@
-#[cfg(not(target_arch = "spirv"))]
 use zerocopy::*;
 
 #[repr(C)]
-#[derive(Copy, Clone)]
-#[cfg_attr(not(target_arch = "spirv"), derive(AsBytes, FromBytes, Debug))]
-pub struct ParseError {
+#[derive(Copy, Clone, AsBytes, FromBytes, Debug)]
+pub struct GPUParseError {
     error: u32, // 0 if no error, > 0 otherwise.
-    location: u32
+    location: u32,
 }
 
 #[cfg(not(target_arch = "spirv"))]
-impl std::fmt::Display for ParseError {
+impl std::fmt::Display for GPUParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.error == 0 {
             write!(f, "No parse error.")
-        }
-        else {
+        } else {
             write!(f, "Parse error at location {}.", self.location)
         }
     }
 }
 
-impl ParseError {
-    pub fn no_error() -> ParseError {
-        return ParseError {
+impl GPUParseError {
+    pub fn no_error() -> GPUParseError {
+        return GPUParseError {
             error: 0,
-            location: 0
-        }
+            location: 0,
+        };
     }
 }
