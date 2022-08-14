@@ -16,7 +16,7 @@ pub struct GPUParseConfig {
 pub struct GPUParseResult {
     pub stack: Vec<StackSym>,
     pub error: GPUParseError,
-    pub top_gives: usize  // This can be used to split the stack into the two factors S^L and S^R as specified by Corollary 2.6.
+    pub bot_gives: usize  // This can be used to split the stack into the two factors S^L and S^R as specified by Corollary 2.6.
 }
 
 pub fn par_parse_gpu(
@@ -71,7 +71,7 @@ pub fn par_parse_gpu(
     let stack_base_db: DeviceBox<[u32]> = stack_base.as_device_boxed()?;
     let stack_ptr_db: DeviceBox<[u32]> = stack_ptr.as_device_boxed_mut()?;
     let gives_stack_db: DeviceBox<[u32]> = vec![0; stack.len()].as_device_boxed_mut()?;
-    let top_gives_db: DeviceBox<[u32]> = vec![0; heads.len()].as_device_boxed_mut()?;
+    let bot_gives_db: DeviceBox<[u32]> = vec![0; heads.len()].as_device_boxed_mut()?;
 
     let prec_mat_db: DeviceBox<[u32]> = gpu_grammar.prec_mat.as_device_boxed()?;
     let rules_db: DeviceBox<[u32]> = gpu_grammar.rules.as_device_boxed()?;
@@ -88,7 +88,7 @@ pub fn par_parse_gpu(
         .add_param::<[u32]>() // stack_base
         .add_param_mut::<[u32]>() // stack_ptr
         .add_param_mut::<[u32]>() // gives_stack
-        .add_param_mut::<[u32]>() // top_gives
+        .add_param_mut::<[u32]>() // bot_gives
         .add_param::<[u32]>() // prec_mat
         .add_param::<[u32]>() // rules
         .add_param::<u32>() // term_thresh
@@ -106,7 +106,7 @@ pub fn par_parse_gpu(
             &stack_base_db,
             &stack_ptr_db,
             &gives_stack_db,
-            &top_gives_db,
+            &bot_gives_db,
             &prec_mat_db,
             &rules_db,
             &DeviceBox::new(gpu_grammar.term_thresh)?,
@@ -117,17 +117,17 @@ pub fn par_parse_gpu(
     let result_stack = futures::executor::block_on(stack_db.get())?;
     let result_stack_ptr = futures::executor::block_on(stack_ptr_db.get())?;
     let result_errors = futures::executor::block_on(errors_db.get())?;
-    let result_top_gives = futures::executor::block_on(top_gives_db.get())?;
+    let result_bot_gives = futures::executor::block_on(bot_gives_db.get())?;
 
     let results = stack_base
         .iter()
         .zip(result_stack_ptr.iter())
         .zip(result_errors.iter())
-        .zip(result_top_gives.iter())
-        .map(|(((base, ptr), err), top_gives)| GPUParseResult {
+        .zip(result_bot_gives.iter())
+        .map(|(((base, ptr), err), botgv)| GPUParseResult {
             stack: result_stack[*base as usize..*ptr as usize].to_vec(),
             error: *err,
-            top_gives: *top_gives as usize,
+            bot_gives: *botgv as usize,
         })
         .collect();
 

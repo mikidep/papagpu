@@ -50,8 +50,8 @@ layout(set = 0, binding = 6) buffer GivesStackBuffer {
     uint[] gives_stack;
 };
 
-layout(set = 0, binding = 7) buffer TopGivesRetBuffer {
-    uint[] top_gives_ret;
+layout(set = 0, binding = 7) buffer BotGivesBuffer {
+    uint[] bot_gives;
 };
 
 layout(set = 0, binding = 8) buffer PrecMatBuffer {
@@ -227,9 +227,9 @@ void main() {
     }
     error[thread_idx] = parse_error_no_error;
     if (stack_info.gives_nr == 0) {
-        top_gives_ret[thread_idx] = 0;
+        bot_gives[thread_idx] = 0;
     }
     else {
-        top_gives_ret[thread_idx] = gives_stack[stack_info.stack_base + stack_info.gives_nr - 1] - stack_info.stack_base;
+        bot_gives[thread_idx] = gives_stack[stack_info.stack_base] - stack_info.stack_base;
     }
 }

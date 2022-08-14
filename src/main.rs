@@ -35,7 +35,7 @@ where
         }
         println!();
         println!("Error: {}", res.error);
-        println!("Top gives: {}", res.top_gives);
+        println!("Bot gives: {}", res.bot_gives);
         println!();
     }
 }

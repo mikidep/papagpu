@@ -37,9 +37,6 @@ impl<AlphaIt: Iterator<Item = u32>> Iterator for InitialConfigs<AlphaIt> {
             res.extend_from_slice(&chunk);
             let old_last_sym = self.lookbehind;
             self.lookbehind = *res.last().unwrap();
-            /* if let Some(lookahead) = self.alpha_enc.peek() {
-                res.push(*lookahead);
-            } */
             res.push(self.alpha_enc.peek().map_or(0, |x| *x));
             let res_len = res.len();
             Some(GPUParseConfig {
@@ -66,6 +63,6 @@ where
 {
     assert_ne!(chunk_size, 0, "`chunk_size` must be non-zero.");
 
-    let mut alpha_enc = grammar.encode_iterator(alpha);
+    let alpha_enc = grammar.encode_iterator(alpha);
     InitialConfigs::new(alpha_enc, chunk_size)
 }
